@@ -98,7 +98,7 @@ class SiglipMLP(nn.Module):
         return hidden_states
 
 
-class SiglipAttention(nn.module):
+class SiglipAttention(nn.Module):
     """Multi-headed attention"""
 
     def __init__(self, config):

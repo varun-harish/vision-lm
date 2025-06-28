@@ -4,6 +4,7 @@ from typing import Optional, Tuple, List
 from torch.nn import CrossEntropyLoss
 import math
 from modeling_siglip import SiglipVisionConfig, SiglipVisionModel
+from transformers import AutoTokenizer
 
 
 class KVCache:
@@ -19,7 +20,7 @@ class KVCache:
 
     def update(
         self,
-        key_states: torch.Tesnor,
+        key_states: torch.Tensor,
         value_states: torch.Tensor,
         layer_idx: int,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -179,7 +180,7 @@ class GemmaRotaryEmbedding(nn.Module):
             if isinstance(device_type, str) and device_type != "mps"
             else "cpu"
         )
-        with torch.autocase(device_type=device_type, enabled=False):
+        with torch.autocast(device_type=device_type, enabled=False):
             freqs = (
                 inv_freq_expanded.float() @ position_ids_expanded.float()
             ).transpose(1, 2)
@@ -255,7 +256,7 @@ class GemmaAttention(nn.Module):
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()  # [batch_size, seq_len, hidden_size]
-        query_states - self.q_proj(hidden_states)
+        query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
         query_states = query_states.view(
@@ -331,7 +332,7 @@ class GemmaDecoderLayer(nn.Module):
     def __init__(self, config: GemmaConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_atten = GemmaAttention(config=config, layer_idx=layer_idx)
+        self.self_attn = GemmaAttention(config=config, layer_idx=layer_idx)
         self.mlp = GemmaMLP(config)
         self.input_layernorm = GemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = GemmaRMSNorm(
@@ -354,7 +355,7 @@ class GemmaDecoderLayer(nn.Module):
         (
             hidden_states,
             _,
-        ) = self.self_atten(
+        ) = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -376,7 +377,7 @@ class GemmaDecoderLayer(nn.Module):
 
 class GemmaModel(nn.Module):
     def __init__(self, config: GemmaConfig):
-        super().__init__
+        super().__init__()
         self.config = config
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -399,7 +400,7 @@ class GemmaModel(nn.Module):
     def forward(
         self,
         attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTesnsor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         kv_cache: Optional[KVCache] = None,
     ) -> torch.FloatTensor:
@@ -429,7 +430,7 @@ class GemmaModel(nn.Module):
 
 class GemmaForCausalLM(nn.Module):
     def __init__(self, config):
-        super().__init__
+        super().__init__()
         self.config = config
         self.model = GemmaModel(config)
         self.vocab_size = config.vocab_size
@@ -444,7 +445,7 @@ class GemmaForCausalLM(nn.Module):
     def forward(
         self,
         attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTesnsor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         kv_cache: Optional[KVCache] = None,
     ) -> Tuple:
@@ -502,7 +503,7 @@ class PaliGemmaForConditionalGeneration(nn.Module):
         batch_size, sequence_length = input_ids.shape
         dtype, device = inputs_embeds.dtype, inputs_embeds.device
 
-        # Shape: [Batch_size, Seq_Len, Hidden_size]
+        # Shape: [Batch_Size, Seq_Len, Hidden_size]
         scaled_image_features = image_features / (self.config.hidden_size**0.5)
 
         # Combine the embeddings of the image tokens, the text tokens and mask out all the padding tokens
@@ -510,7 +511,7 @@ class PaliGemmaForConditionalGeneration(nn.Module):
             batch_size,
             sequence_length,
             embed_dim,
-            dtype=inputs_embeds.type,
+            dtype=inputs_embeds.dtype,
             device=inputs_embeds.device,
         )
 
@@ -562,7 +563,7 @@ class PaliGemmaForConditionalGeneration(nn.Module):
             # This only works when we have no padding
 
             causal_mask = torch.full(
-                (batch_size, q_len, kv_len), fill_values=0, dtype=dtype, device=device
+                (batch_size, q_len, kv_len), fill_value=0, dtype=dtype, device=device
             )
 
         # Add the head dimension
